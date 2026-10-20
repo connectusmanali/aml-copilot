@@ -5,12 +5,38 @@ description = "AI copilot for AML alert investigation: scoring, agentic evidence
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=1.26",
+    # <2.5: pandas 2.3 (held below 3 by Feast) triggers numpy 2.5 deprecations that later
+    # numpy versions turn into errors. Lift when Feast supports pandas 3.
+    "numpy>=1.26,<2.5",
     "pandas>=2.2",
     "pyarrow>=16.0",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "psycopg[binary]>=3.2",
+    "scipy>=1.11",
+    "lightgbm>=4.3",
+    "scikit-learn>=1.4",
+    "httpx>=0.27",
+    "langgraph>=0.2",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "temporalio>=1.7",
+    "opentelemetry-sdk>=1.25",
+    "pyyaml>=6",
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
+]
+
+[project.optional-dependencies]
+# Heavy, only needed for feature serving: `uv sync --extra feast`.
+feast = ["feast>=0.60"]
+# Streaming and graph clients: `uv sync --extra stream --extra graph` (CI installs all extras).
+stream = ["confluent-kafka>=2.5"]
+graph = ["neo4j>=5.20"]
+mlflow = [
+    "mlflow>=2.14",
+]
+ui = [
+    "streamlit>=1.36",
 ]
 
 [dependency-groups]
@@ -21,10 +47,21 @@ dev = [
     "mypy>=1.11",
     "pandas-stubs>=2.2",
     "pre-commit>=3.8",
+    "types-pyyaml>=6.0.12.20260906",
 ]
 
 [project.scripts]
 aml-data = "aml.data.cli:main"
+aml-db = "aml.db.migrate:main"
+aml-features = "aml.features.pipeline:main"
+aml-stream = "aml.stream.cli:main"
+aml-graph = "aml.graph.cli:main"
+aml-detect = "aml.detection.cli:main"
+aml-agent = "aml.agent.cli:main"
+aml-workflow = "aml.workflow.worker:main"
+aml-eval = "aml.evals.cli:main"
+aml-api = "aml.api.cli:main"
+aml-ops = "aml.ops.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -40,6 +77,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "N", "RUF"]
+# Domain exception names (BudgetExceeded, DecisionRefused) read better without an Error suffix.
+ignore = ["N818"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -49,10 +88,16 @@ packages = ["aml"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["pyarrow.*", "psycopg.*"]
+module = ["pyarrow.*", "psycopg.*", "confluent_kafka.*", "scipy.*", "feast.*", "sklearn.*",
+          "lightgbm.*", "mlflow.*", "langgraph.*", "temporalio.*", "streamlit.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
-markers = ["integration: needs running Docker services (make up)"]
+markers = [
+    "integration: needs Postgres (make up-lite or make up)",
+    "kafka: needs a Kafka-compatible broker (make up-lite or make up)",
+    "neo4j: needs Neo4j (make up)",
+    "temporal: starts a local Temporal dev server (downloads it once if TEMPORAL_CLI is unset)",
+]
