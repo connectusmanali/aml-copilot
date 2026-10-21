@@ -96,6 +96,41 @@ services:
     mem_limit: 768m
     restart: unless-stopped
 
+  # ---------- application (Step 8/9): one image, three roles ----------
+  api:
+    build: .
+    command: ["aml-api", "serve", "--temporal"]
+    env_file: .env.cloud
+    environment:
+      AML_TEMPORAL_HOST: temporal:7233
+    volumes: [appdata:/data]
+    ports: ["8000:8000"]
+    mem_limit: 768m
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["aml-workflow", "worker", "--agent-concurrency", "2"]
+    env_file: .env.cloud
+    environment:
+      AML_TEMPORAL_HOST: temporal:7233
+    volumes: [appdata:/data]
+    depends_on: [temporal]
+    mem_limit: 1536m
+    restart: unless-stopped
+
+  ui:
+    build: .
+    command: ["streamlit", "run", "src/aml/ui/app.py", "--server.port", "8501",
+              "--server.address", "0.0.0.0"]
+    environment:
+      AML_API_URL: http://api:8000
+    ports: ["8501:8501"]
+    depends_on: [api]
+    mem_limit: 512m
+    restart: unless-stopped
+
 volumes:
   redpanda:
   opsdb:
+  appdata:
