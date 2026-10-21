@@ -1,6 +1,7 @@
 # Local stack for the AML copilot.
 #   make up       -> everything (needs ~8-12 GB free RAM)
 #   make up-lite  -> core only: Postgres + Redpanda (~2 GB), enough for Steps 1-3
+# Both run `make db-migrate` afterwards.
 name: aml-copilot
 
 services:
@@ -12,9 +13,10 @@ services:
       POSTGRES_USER: ${AML_POSTGRES_USER:-aml}
       POSTGRES_PASSWORD: ${AML_POSTGRES_PASSWORD:-change-me-locally}
     ports: ["${AML_POSTGRES_PORT:-5432}:5432"]
+    # Schema is applied by `make db-migrate` (aml-db migrate), not by an init script, so local,
+    # CI and the cloud all build the schema the same way.
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${AML_POSTGRES_USER:-aml} -d ${AML_POSTGRES_DB:-aml}"]
       interval: 5s
