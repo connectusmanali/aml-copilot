@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aml-config
+data:
+  AML_TEMPORAL_HOST: temporal-frontend.temporal:7233
+  AML_LLM_PROVIDER: anthropic
+  AML_CASE_SLA_HOURS: "48"
+  AML_AGENT_MAX_TOOL_CALLS: "12"
+  AML_CASE_TOKEN_BUDGET: "20000"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+---
+# Secrets come from the platform's secret store (External Secrets Operator -> Vault / Key
+# Vault). This object only names the keys; values are never committed.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: aml-secrets
+spec:
+  refreshInterval: 1h
+  secretStoreRef: {name: bank-vault, kind: ClusterSecretStore}
+  target: {name: aml-secrets}
+  data:
+    - {secretKey: AML_POSTGRES_PASSWORD, remoteRef: {key: aml/postgres, property: password}}
+    - {secretKey: AML_LLM_API_KEY, remoteRef: {key: aml/llm, property: api_key}}
+    - {secretKey: AML_API_KEYS, remoteRef: {key: aml/api, property: keys}}

@@ -1,0 +1,35 @@
+# Default deny; then allow only what the design needs. The agent's egress is limited to the
+# database, Temporal, the OTel collector and the approved LLM endpoint (via the egress proxy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: app-egress}
+spec:
+  podSelector: {matchLabels: {tier: app}}
+  policyTypes: [Egress]
+  egress:
+    - ports: [{port: 53, protocol: UDP}]                  # DNS
+    - to: [{namespaceSelector: {matchLabels: {name: data}}}]
+      ports: [{port: 5432}]                                # Postgres
+    - to: [{namespaceSelector: {matchLabels: {name: temporal}}}]
+      ports: [{port: 7233}]
+    - to: [{namespaceSelector: {matchLabels: {name: observability}}}]
+      ports: [{port: 4318}]
+    - to: [{namespaceSelector: {matchLabels: {name: egress-proxy}}}]
+      ports: [{port: 3128}]                                # LLM API through the bank proxy
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: api-ingress}
+spec:
+  podSelector: {matchLabels: {app: api}}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{namespaceSelector: {matchLabels: {name: ingress}}}]
+      ports: [{port: 8000}]

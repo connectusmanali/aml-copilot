@@ -1,0 +1,17 @@
+# Reference Kubernetes deployment (AKS / EKS / OpenShift). The free Oracle VM runs the same
+# image with docker compose; these manifests show how the system maps onto a bank's platform.
+#   kubectl apply -k deploy/k8s
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aml-copilot
+resources:
+  - namespace.yaml
+  - config.yaml
+  - api.yaml
+  - workers.yaml
+  - scorer.yaml
+  - network-policy.yaml
+images:
+  - name: aml-copilot
+    newName: ghcr.io/OWNER/aml-copilot
+    newTag: latest

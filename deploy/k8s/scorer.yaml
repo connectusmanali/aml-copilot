@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scorer
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: scorer}}
+  template:
+    metadata: {labels: {app: scorer, tier: app}}
+    spec:
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: scorer
+          image: aml-copilot
+          args: ["aml-detect", "serve", "--port", "8001"]
+          ports: [{containerPort: 8001}]
+          envFrom: [{configMapRef: {name: aml-config}}]
+          volumeMounts: [{name: models, mountPath: /data/models, readOnly: true}]
+          readinessProbe: {httpGet: {path: /health, port: 8001}}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+      volumes:
+        - name: models   # model bundles are promoted into this volume by the release pipeline
+          persistentVolumeClaim: {claimName: model-registry}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: scorer}
+spec:
+  selector: {app: scorer}
+  ports: [{port: 80, targetPort: 8001}]

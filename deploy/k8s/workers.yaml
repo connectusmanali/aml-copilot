@@ -1,0 +1,36 @@
+# Case worker (workflows + database activities) and agent worker (LLM-bound activities) scale
+# separately: agent capacity is limited by the LLM provider's rate limit, not by CPU.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: case-worker
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: case-worker}}
+  template:
+    metadata: {labels: {app: case-worker, tier: app}}
+    spec:
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      terminationGracePeriodSeconds: 60   # let in-flight activities finish; Temporal retries the rest
+      containers:
+        - name: worker
+          image: aml-copilot
+          args: ["aml-workflow", "worker", "--agent-concurrency", "4"]
+          envFrom: [{configMapRef: {name: aml-config}}, {secretRef: {name: aml-secrets}}]
+          resources:
+            requests: {cpu: 500m, memory: 768Mi}
+            limits: {cpu: "2", memory: 1536Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: case-worker}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: case-worker}
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
