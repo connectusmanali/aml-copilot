@@ -1,10 +1,16 @@
-"""Small synthetic generator in IBM raw format.
+"""Synthetic generator in IBM raw format.
 
-Used by tests and CI (no Kaggle download needed), and for quick local experiments.
-It injects three classic laundering typologies so later steps have something to find:
+Used by tests and CI (no Kaggle download needed), and for experiments. It injects three classic
+laundering typologies so later steps have something to find:
   - structuring: several cash deposits just under the 10,000 reporting threshold
   - fan-out:     one account sprays funds to many mules within hours
   - cycle:       funds travel A -> B -> C -> A and return to the origin
+
+...and the same number of DECOYS: legitimate behaviour that looks like a typology on the surface.
+Without decoys a model only learns "cash near 10,000 = laundering", which real data punishes:
+  - payroll:         a business pays many employees the same day (looks like fan-out)
+  - honest cash:     a single cash deposit just under 10,000 (looks like structuring)
+  - refund:          A pays B, B refunds A (money comes back, like a cycle)
 """
 
 from __future__ import annotations
@@ -26,8 +32,20 @@ def _acct(rng: np.random.Generator) -> tuple[str, str]:
     return bank, acct
 
 
+# (accounts, normal transactions, laundering patterns) per size
+SIZES: dict[str, tuple[int, int, int]] = {
+    "small": (500, 5_000, 10),
+    "medium": (3_000, 120_000, 600),
+    "full": (10_000, 600_000, 3_000),
+}
+
+
 def generate(
-    n_accounts: int = 500, n_normal: int = 5_000, n_patterns: int = 10, seed: int = 42
+    n_accounts: int = 500,
+    n_normal: int = 5_000,
+    n_patterns: int = 10,
+    seed: int = 42,
+    n_decoys: int | None = None,
 ) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     start = datetime(2022, 9, 1)
@@ -78,13 +96,15 @@ def generate(
                     True,
                 )
         elif kind == 1:  # fan-out
-            src = accounts[rng.integers(n_accounts)]
-            for k in range(int(rng.integers(5, 10))):
-                mule = accounts[rng.integers(n_accounts)]
+            src_i = int(rng.integers(n_accounts))
+            # Distinct mules, never the sender itself.
+            others = np.delete(np.arange(n_accounts), src_i)
+            mules = rng.choice(others, size=int(rng.integers(5, 10)), replace=False)
+            for k, mule_i in enumerate(mules):
                 add(
                     ts + timedelta(minutes=20 * k),
-                    src,
-                    mule,
+                    accounts[src_i],
+                    accounts[int(mule_i)],
                     float(rng.uniform(2_000, 8_000)),
                     "Wire",
                     True,
@@ -95,6 +115,39 @@ def generate(
             path = [accounts[i] for i in idx] + [accounts[idx[0]]]
             for k in range(3):
                 add(ts + timedelta(hours=k), path[k], path[k + 1], amt * (0.98**k), "ACH", True)
+
+    # Decoys: legitimate look-alikes (label 0).
+    for p in range(n_patterns if n_decoys is None else n_decoys):
+        ts = start + timedelta(days=int(rng.integers(1, 28)), hours=int(rng.integers(6, 18)))
+        kind = p % 3
+        if kind == 0:  # payroll: one business, many employees, same morning
+            src_i = int(rng.integers(n_accounts))
+            others = np.delete(np.arange(n_accounts), src_i)
+            staff = rng.choice(others, size=int(rng.integers(6, 13)), replace=False)
+            for k, emp in enumerate(staff):
+                add(
+                    ts + timedelta(minutes=2 * k),
+                    accounts[src_i],
+                    accounts[int(emp)],
+                    float(rng.uniform(1_500, 6_000)),
+                    "ACH",
+                    False,
+                )
+        elif kind == 1:  # one honest cash deposit just under the threshold
+            i, j = rng.choice(n_accounts, size=2, replace=False)
+            add(ts, accounts[i], accounts[j], float(rng.uniform(9_000, 9_950)), "Cash", False)
+        else:  # payment and refund
+            i, j = rng.choice(n_accounts, size=2, replace=False)
+            amt = float(rng.uniform(500, 5_000))
+            add(ts, accounts[i], accounts[j], amt, "Credit Card", False)
+            add(
+                ts + timedelta(days=int(rng.integers(1, 4))),
+                accounts[j],
+                accounts[i],
+                amt,
+                "Credit Card",
+                False,
+            )
 
     df = pd.DataFrame(rows, columns=RAW_COLUMNS)
     return df.sort_values("timestamp", kind="stable").reset_index(drop=True)

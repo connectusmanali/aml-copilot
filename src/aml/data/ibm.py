@@ -9,11 +9,12 @@ Raw columns (note the duplicated "Account" header):
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
+
+from aml.data.schemas import make_txn_id
 
 RAW_COLUMNS = [
     "timestamp",
@@ -60,41 +61,41 @@ def read_raw(path: Path, nrows: int | None = None) -> pd.DataFrame:
 
 
 def _hash_ids(df: pd.DataFrame) -> pd.Series:
-    """Deterministic txn IDs (same logic as schemas.make_txn_id, vectorized-ish for speed)."""
-    seq = df.groupby(["ts", "from_account", "to_account", "amount_paid"], sort=False).cumcount()
-    keys = (
-        df["ts"].dt.strftime("%Y-%m-%dT%H:%M:%S")
-        + "|"
-        + df["from_account"]
-        + "|"
-        + df["to_account"]
-        + "|"
-        + df["amount_paid"].map(lambda a: f"{a:.2f}")
-        + "|"
-        + seq.astype(str)
-    )
-    ids = [hashlib.sha256(k.encode()).hexdigest()[:32] for k in keys]
+    """Deterministic txn IDs, built row by row with the one shared schemas.make_txn_id."""
+    seq = df.groupby(
+        ["ts", "from_account", "to_account", "amount_paid"], sort=False, dropna=False
+    ).cumcount()
+    ids = [
+        make_txn_id(ts, frm, to, amt, int(n))
+        for ts, frm, to, amt, n in zip(
+            df["ts"], df["from_account"], df["to_account"], df["amount_paid"], seq, strict=True
+        )
+    ]
     return pd.Series(ids, index=df.index, dtype="string")
 
 
 def normalize(raw: pd.DataFrame) -> pd.DataFrame:
-    """Raw IBM rows -> our contract. Pure function: no I/O, easy to test."""
+    """Raw IBM rows -> our contract shape. Pure function: no I/O, easy to test.
+
+    This maps shape only; it never decides what is valid. Unparseable values become NaN/NaT and
+    are rejected, with a reason, by validate.validate_transactions. Nothing is silently dropped.
+    """
     df = pd.DataFrame(
         {
-            "ts": pd.to_datetime(raw["timestamp"], format="%Y/%m/%d %H:%M"),
+            "ts": pd.to_datetime(raw["timestamp"], format="%Y/%m/%d %H:%M", errors="coerce"),
             # Account hex IDs are only unique within a bank, so prefix with the bank ID.
             "from_account": raw["from_bank"].str.strip() + "-" + raw["from_acct"].str.strip(),
             "to_account": raw["to_bank"].str.strip() + "-" + raw["to_acct"].str.strip(),
-            "amount_paid": raw["amount_paid"].astype(float).round(2),
+            "amount_paid": pd.to_numeric(raw["amount_paid"], errors="coerce").round(2),
             "payment_currency": raw["payment_currency"].str.strip(),
-            "amount_received": raw["amount_received"].astype(float).round(2),
+            "amount_received": pd.to_numeric(raw["amount_received"], errors="coerce").round(2),
             "receiving_currency": raw["receiving_currency"].str.strip(),
             "payment_format": raw["payment_format"].str.strip(),
-            "is_laundering": raw["is_laundering"].astype(int).astype(bool),
+            "is_laundering": pd.to_numeric(raw["is_laundering"], errors="coerce").map(
+                {0: False, 1: True}
+            ),
         }
     )
-    # Drop zero/negative amounts: they violate the contract and carry no signal.
-    df = df[(df["amount_paid"] > 0) & (df["amount_received"] > 0)].copy()
     df["txn_id"] = _hash_ids(df)
     return df.sort_values("ts", kind="stable").reset_index(drop=True)[NORMALIZED_COLUMNS]
 

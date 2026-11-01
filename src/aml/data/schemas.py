@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -64,12 +64,40 @@ class Customer(BaseModel):
     onboarded_at: date
 
 
+TS_KEY_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+
+def format_ts(ts: datetime | None) -> str:
+    """Timestamp as it appears in an ID key. Missing timestamps (None/NaT) become 'NaT'."""
+    if ts is None or ts != ts:  # NaT is the only value not equal to itself
+        return "NaT"
+    return ts.strftime(TS_KEY_FORMAT)
+
+
+def format_amount(amount: Decimal | float | str) -> str:
+    """Amount as it appears in an ID key: always exactly two decimals ('100.00', never '100.0')."""
+    try:
+        d = Decimal(str(amount))
+    except InvalidOperation:
+        return "NaN"
+    return f"{d:.2f}" if d.is_finite() else "NaN"
+
+
 def make_txn_id(
-    ts: datetime, from_account: str, to_account: str, amount_paid: Decimal | float, seq: int
+    ts: datetime | None,
+    from_account: object,
+    to_account: object,
+    amount_paid: Decimal | float | str,
+    seq: int,
 ) -> str:
     """Deterministic ID: loading the same row twice yields the same ID, so loads are idempotent.
 
-    `seq` disambiguates genuinely identical rows (same time, parties and amount).
+    This is the ONLY place IDs are built; ibm.normalize calls it row by row, so the batch and
+    streaming paths can never disagree. `seq` disambiguates genuinely identical rows (same time,
+    parties and amount). Malformed fields still get a stable ID, so bad rows can be quarantined
+    and de-duplicated too.
     """
-    key = f"{ts.isoformat()}|{from_account}|{to_account}|{amount_paid}|{seq}"
+    key = "|".join(
+        [format_ts(ts), str(from_account), str(to_account), format_amount(amount_paid), str(seq)]
+    )
     return hashlib.sha256(key.encode()).hexdigest()[:32]

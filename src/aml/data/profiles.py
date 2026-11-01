@@ -4,10 +4,17 @@ The IBM data has accounts but no customers. Investigators always compare activit
 what the customer *declared* at onboarding, so we create that declaration here.
 
 Realism choices (each is a talking point in interviews):
-  - expected_monthly_volume is derived from actual activity with noise, so most customers look
-    consistent; laundering accounts are more often *under-declared*, a common real red flag.
+  - expected_monthly_volume is derived from actual activity (in USD) with noise, so most
+    customers look consistent. Under-declaring is a real red flag, so laundering accounts
+    under-declare MORE OFTEN than others, but not always, and some honest customers do too.
+    An earlier version made every laundering account under-declare, which leaked the label
+    into a feature; see ADR 0003.
   - risk_rating comes from a simple, explainable KYC rule (country + segment + occupation),
     the way first-line onboarding teams actually assign it.
+
+Known limitation of synthetic data (documented in the model card in Step 3): declared volume and
+segment are derived from activity across the whole window, i.e. partly from the "future" relative
+to onboarding. Real KYC is captured before any activity.
 """
 
 from __future__ import annotations
@@ -17,6 +24,8 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
+
+from aml.data.fx import to_usd
 
 COUNTRIES = ["CA", "US", "GB", "MX", "AE", "HK", "PA", "CY"]
 COUNTRY_P = [0.78, 0.10, 0.03, 0.03, 0.02, 0.02, 0.01, 0.01]
@@ -43,6 +52,10 @@ BUSINESS_TYPES = [
     "retail",
     "real estate holding",
 ]
+# Probability that a customer under-declares (declares 10-50% of real activity).
+P_UNDER_DECLARE_LAUNDERING = 0.40
+P_UNDER_DECLARE_OTHER = 0.10
+
 HIGH_RISK_BUSINESS = {
     "money service business",
     "import/export",
@@ -63,8 +76,11 @@ def build_profiles(txns: pd.DataFrame, seed: int = 42) -> tuple[pd.DataFrame, pd
     """Return (customers, accounts) DataFrames. One customer per account for now."""
     rng = np.random.default_rng(seed)
 
-    sent = txns.groupby("from_account").agg(
-        n_sent=("txn_id", "size"), vol_sent=("amount_paid", "sum")
+    usd = to_usd(txns["amount_paid"], txns["payment_currency"]).fillna(0.0)
+    sent = (
+        txns.assign(amount_usd=usd)
+        .groupby("from_account")
+        .agg(n_sent=("txn_id", "size"), vol_sent=("amount_usd", "sum"))
     )
     bad = pd.concat(
         [
@@ -88,12 +104,13 @@ def build_profiles(txns: pd.DataFrame, seed: int = 42) -> tuple[pd.DataFrame, pd
     ]
     country = rng.choice(COUNTRIES, size=n, p=COUNTRY_P)
 
-    # Declared volume = actual * noise. Bad accounts under-declare (declare 10-50%).
+    # Declared volume = actual * noise, except for under-declarers (10-50% of actual).
+    # Laundering accounts under-declare more often than others, but neither group always does.
     noise = rng.lognormal(0.0, 0.3, size=n)
     is_bad = all_accounts.isin(bad)
-    declared = np.where(
-        is_bad, monthly_actual * rng.uniform(0.1, 0.5, size=n), monthly_actual * noise
-    )
+    p_under = np.where(is_bad, P_UNDER_DECLARE_LAUNDERING, P_UNDER_DECLARE_OTHER)
+    under = rng.random(n) < p_under
+    declared = monthly_actual * np.where(under, rng.uniform(0.1, 0.5, size=n), noise)
     declared = np.maximum(declared, 500.0).round(2)
 
     first_seen = txns["ts"].min().date()
