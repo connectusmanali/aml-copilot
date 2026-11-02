@@ -46,4 +46,4 @@ from humans and without creating an unexplainable black box.
 - Every component is replaceable behind an interface (e.g. Redpanda <-> Kafka, LiteLLM <-> a
   bank's internal gateway), which mirrors how a bank would adopt it.
 - The data is synthetic (IBM AML dataset + generated KYC profiles). Results show the method,
-  not real-world performan
+  not real-world performance.
