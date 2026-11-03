@@ -1,1 +1,1 @@
-"""Step 2: batch + streaming features, Feast registry, Neo4j graph features."""
+"""Features: point-in-time account state, daily graph snapshots, as-of joins, Feast."""
