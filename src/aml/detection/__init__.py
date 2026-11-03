@@ -1,1 +1,1 @@
-"""Step 3: rules engine baseline, LightGBM risk scorer, SHAP explanations, MLflow."""
+"""Step 3: rules baseline, LightGBM risk scorer, calibration, TreeSHAP reasons, scoring API."""

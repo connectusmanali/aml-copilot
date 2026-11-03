@@ -1,0 +1,50 @@
+# Rule scenarios: the explainable baseline every bank already runs, written as CONFIG.
+# Compliance can change a threshold here without a code release, and every alert names the
+# scenario (and typology) that fired, which the agent and the report reuse.
+#
+# Each condition: feature (a training_frame column), op (>=, >, <=, <, ==), value.
+# A scenario fires when ALL its conditions hold.
+
+scenarios:
+  - id: structuring
+    typology: structuring
+    description: Repeated cash payments just under the USD 10,000 reporting threshold within 24h
+    all:
+      - {feature: is_cash, op: "==", value: 1}
+      - {feature: s_near_threshold_cash_24h, op: ">=", value: 2}
+
+  - id: rapid_pass_through
+    typology: layering
+    description: Money received and sent on within 24h (pass-through), over USD 10,000
+    all:
+      - {feature: s_in_amt_24h, op: ">=", value: 10000}
+      - {feature: s_passthrough_ratio_24h, op: ">=", value: 0.8}
+
+  - id: fan_out_burst
+    typology: fan_out
+    description: Payments to many distinct accounts in a short time
+    all:
+      - {feature: s_out_cnt_24h, op: ">=", value: 5}
+      - {feature: s_out_uniq_cpty_7d, op: ">=", value: 8}
+      - {feature: amount_usd, op: ">=", value: 1500}
+
+  - id: velocity_spike
+    typology: unusual_activity
+    description: 24h outflow far above the account's own 30-day daily average
+    all:
+      - {feature: s_spike_ratio_24h, op: ">=", value: 8}
+      - {feature: s_out_amt_24h, op: ">=", value: 15000}
+
+  - id: kyc_mismatch
+    typology: unusual_activity
+    description: 30-day outflow at least 3x the volume declared at onboarding
+    all:
+      - {feature: s_kyc_actual_vs_declared, op: ">=", value: 3}
+      - {feature: s_out_amt_30d, op: ">=", value: 10000}
+
+  - id: high_risk_large_payment
+    typology: high_risk_customer
+    description: High-risk customer making a payment over USD 20,000
+    all:
+      - {feature: s_risk_rating, op: "==", value: 2}
+      - {feature: amount_usd, op: ">=", value: 20000}
