@@ -1,4 +1,1 @@
-"""Step 5: Temporal case workflow.
-
-States: New -> Scored -> Investigating -> Drafted -> In review -> Filed/Closed.
-"""
+"""Step 5: the case lifecycle as a durable Temporal workflow."""
