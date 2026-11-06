@@ -9,6 +9,7 @@ DEST=/opt/aml
 
 rsync -az --delete --relative \
   docker-compose.cloud.yml infra/postgres/ops-init.sql infra/mlflow/ \
+  Dockerfile .dockerignore pyproject.toml uv.lock README.md src/ \
   "$HOST:$DEST/"
 rsync -az .env.cloud "$HOST:$DEST/.env.cloud"
 ssh "$HOST" "chmod 600 $DEST/.env.cloud && cd $DEST && \
@@ -17,7 +18,8 @@ ssh "$HOST" "chmod 600 $DEST/.env.cloud && cd $DEST && \
 
 # Smoke tests: fail the deploy if a service did not come up.
 for i in $(seq 1 30); do
-  if curl -fsS "http://aml-vm:5000/health" >/dev/null && curl -fsS "http://aml-vm:8080" >/dev/null; then
+  if curl -fsS "http://aml-vm:5000/health" >/dev/null && curl -fsS "http://aml-vm:8080" >/dev/null \
+     && curl -fsS "http://aml-vm:8000/health" >/dev/null; then
     echo "smoke tests passed"; exit 0
   fi
   sleep 10

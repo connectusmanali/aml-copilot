@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Apply the schema to Neon. init.sql is idempotent, so this is safe to run on every deploy.
-# Uses the DIRECT (non-pooled) URL because DDL should not go through the connection pooler.
+# Apply pending schema migrations to Neon (or any Postgres). Safe on every deploy: applied
+# migrations are skipped, edited ones are refused (see src/aml/db/migrate.py).
+# Uses the DIRECT (non-pooled) URL: DDL and advisory locks should not go through a pooler.
 set -euo pipefail
 : "${AML_POSTGRES_MIGRATE_URL:?export AML_POSTGRES_MIGRATE_URL (direct Neon connection string)}"
-psql "$AML_POSTGRES_MIGRATE_URL" -v ON_ERROR_STOP=1 -q -f infra/postgres/init.sql
-echo "schema applied"
+uv run aml-db migrate --dsn "$AML_POSTGRES_MIGRATE_URL"
