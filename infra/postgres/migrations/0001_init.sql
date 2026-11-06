@@ -1,5 +1,4 @@
--- Runs once, the first time the Postgres container starts with an empty volume.
--- To re-run: make reset  (drops volumes)
+-- 0001: initial schema (Step 1). Applied by `aml-db migrate`; never edit after it has run.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
