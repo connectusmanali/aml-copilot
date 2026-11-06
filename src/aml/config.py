@@ -28,10 +28,17 @@ class Settings(BaseSettings):
     postgres_sslmode: str = "prefer"  # "require" for Neon
 
     kafka_bootstrap: str = "localhost:19092"
+    kafka_topic_raw: str = "transactions.raw"
+    kafka_topic_dlq: str = "transactions.dlq"
+    kafka_group: str = "aml-ingest"
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
     neo4j_password: SecretStr = SecretStr("change-me-locally")
+    neo4j_database: str = "neo4j"
+    # Neo4j AuraDB Free limits; the loader refuses to exceed them.
+    neo4j_max_nodes: int = 200_000
+    neo4j_max_relationships: int = 400_000
 
     temporal_host: str = "localhost:7233"
     mlflow_uri: str = "http://localhost:5000"
@@ -39,8 +46,19 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     random_seed: int = 42
 
-    llm_provider: str = "anthropic"
+    # offline (default: deterministic, no network) | gemini | anthropic
+    llm_provider: str = "offline"
     llm_api_key: SecretStr | None = None
+    llm_model: str = ""  # empty = provider default (gemini-flash-latest / claude-haiku-4-5)
+    llm_embed_model: str = "gemini-embedding-001"
+    case_token_budget: int = 20_000
+    agent_max_tool_calls: int = 12
+    agent_max_seconds: float = 60.0
+    # Investigator API keys -> "user:role" (stand-in for SSO). Format: key1=alice:investigator,...
+    api_keys: str = (
+        "dev-investigator=alice:investigator,dev-senior=bob:senior,dev-auditor=carol:auditor"
+    )
+    case_sla_hours: float = 48.0
 
     @property
     def postgres_dsn(self) -> str:
@@ -58,6 +76,18 @@ class Settings(BaseSettings):
     @property
     def processed_dir(self) -> Path:
         return self.data_dir / "processed"
+
+    @property
+    def features_dir(self) -> Path:
+        return self.data_dir / "features"
+
+    @property
+    def feast_dir(self) -> Path:
+        return self.data_dir / "feast"
+
+    @property
+    def models_dir(self) -> Path:
+        return self.data_dir / "models"
 
 
 @lru_cache(maxsize=1)
